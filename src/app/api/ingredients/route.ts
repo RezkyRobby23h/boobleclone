@@ -7,8 +7,11 @@ const ingredientSchema = z.object({
   sku: z.string().min(1, "SKU wajib diisi"),
   stock: z.coerce.number().min(0, "Stok tidak boleh negatif"),
   minimumStock: z.coerce.number().min(0, "Stok minimum tidak boleh negatif"),
-  unit: z.string().min(1, "Satuan wajib diisi"),
+  unit: z.string().min(1, "Satuan wajib diisi").optional(),
   costPerUnit: z.coerce.number().min(0, "Harga tidak boleh negatif"),
+  entryDate: z.string().optional(),
+  expiryDate: z.string().optional().nullable(),
+  ingredientSkuId: z.string().min(1, "SKU bahan baku wajib dipilih"),
 });
 
 export async function GET() {
@@ -16,9 +19,7 @@ export async function GET() {
     const ingredients = await prisma.ingredient.findMany({
       orderBy: { createdAt: "desc" },
       include: {
-        recipes: {
-          include: { product: true },
-        },
+        ingredientSku: true,
       },
     });
     return NextResponse.json(ingredients);
@@ -47,8 +48,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Ambil unit dari IngredientSku jika tidak dikirim dari frontend
+    let unit = validated.unit;
+    if (!unit) {
+      const sku = await prisma.ingredientSku.findUnique({
+        where: { id: validated.ingredientSkuId },
+      });
+      if (!sku) {
+        return NextResponse.json(
+          { error: "SKU bahan baku tidak ditemukan" },
+          { status: 400 }
+        );
+      }
+      unit = sku.unit;
+    }
+
     const ingredient = await prisma.ingredient.create({
-      data: validated,
+      data: {
+        name: validated.name,
+        sku: validated.sku,
+        stock: validated.stock,
+        minimumStock: validated.minimumStock,
+        unit: unit,
+        costPerUnit: validated.costPerUnit,
+        entryDate: validated.entryDate ? new Date(validated.entryDate) : new Date(),
+        expiryDate: validated.expiryDate ? new Date(validated.expiryDate) : null,
+        ingredientSkuId: validated.ingredientSkuId,
+      },
+      include: {
+        ingredientSku: true,
+      },
     });
 
     return NextResponse.json(ingredient, { status: 201 });

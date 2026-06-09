@@ -9,6 +9,9 @@ const ingredientUpdateSchema = z.object({
   minimumStock: z.coerce.number().min(0).optional(),
   unit: z.string().min(1).optional(),
   costPerUnit: z.coerce.number().min(0).optional(),
+  entryDate: z.string().optional(),
+  expiryDate: z.string().optional().nullable(),
+  ingredientSkuId: z.string().min(1).optional(),
 });
 
 export async function GET(
@@ -19,7 +22,9 @@ export async function GET(
     const { id } = await params;
     const ingredient = await prisma.ingredient.findUnique({
       where: { id },
-      include: { recipes: { include: { product: true } } },
+      include: {
+        ingredientSku: true,
+      },
     });
 
     if (!ingredient) {
@@ -48,9 +53,23 @@ export async function PUT(
     const body = await request.json();
     const validated = ingredientUpdateSchema.parse(body);
 
+    const updateData: Record<string, unknown> = {};
+    if (validated.name !== undefined) updateData.name = validated.name;
+    if (validated.sku !== undefined) updateData.sku = validated.sku;
+    if (validated.stock !== undefined) updateData.stock = validated.stock;
+    if (validated.minimumStock !== undefined) updateData.minimumStock = validated.minimumStock;
+    if (validated.unit !== undefined) updateData.unit = validated.unit;
+    if (validated.costPerUnit !== undefined) updateData.costPerUnit = validated.costPerUnit;
+    if (validated.entryDate !== undefined) updateData.entryDate = new Date(validated.entryDate);
+    if (validated.expiryDate !== undefined) updateData.expiryDate = validated.expiryDate ? new Date(validated.expiryDate) : null;
+    if (validated.ingredientSkuId !== undefined) updateData.ingredientSkuId = validated.ingredientSkuId;
+
     const ingredient = await prisma.ingredient.update({
       where: { id },
-      data: validated,
+      data: updateData,
+      include: {
+        ingredientSku: true,
+      },
     });
 
     return NextResponse.json(ingredient);
