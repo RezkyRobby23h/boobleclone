@@ -14,20 +14,36 @@ Untuk menghasilkan performa optimal dan tampilan UI/UX yang premium, berikut ada
 ---
 
 ## 2. Arsitektur Basis Data (Prisma Schema Reference)
-Sistem ini bertumpu pada relasi erat antara Produk, Bahan Baku (`Ingredient`), dan Resep (`RecipeBOM`).
+Sistem ini bertumpu pada relasi erat antara Produk, SKU Bahan Baku (`IngredientSku`), Batch Bahan Baku (`Ingredient`), dan Resep (`RecipeBOM`). Konsep batch memungkinkan pelacakan tanggal masuk dan kedaluwarsa, serta penerapan sistem FEFO (First Expiry, First Out) pada saat checkout.
 
 ```prisma
+model IngredientSku {
+  id          String       @id @default(cuid())
+  sku         String       @unique // Contoh: SUS-UHT
+  name        String       // Contoh: Susu UHT Full Cream
+  unit        String       // g, ml, pcs, kg
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  ingredients Ingredient[]
+  recipes     RecipeBOM[]
+}
+
 model Ingredient {
-  id           String   @id @default(cuid())
-  name         String
-  sku          String   @unique
-  stock        Float    // Stok saat ini (gram, ml, pcs, dll)
-  minimumStock Float    // Batas peringatan stok menipis
-  unit         String   // g, ml, pcs, kg
-  costPerUnit  Float    // Harga modal per unit bahan baku
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  recipes      RecipeBOM[]
+  id              String        @id @default(cuid())
+  name            String        // Nama batch, contoh: Susu UHT Batch Juni
+  sku             String        @unique // SKU batch, contoh: SUS-UHT-20260601
+  stock           Float         // Stok saat ini (gram, ml, pcs, dll)
+  minimumStock    Float         // Batas peringatan stok menipis
+  unit            String        // g, ml, pcs, kg
+  costPerUnit     Float         // Harga modal per unit bahan baku
+  entryDate       DateTime      @default(now()) // Tanggal masuk bahan baku
+  expiryDate      DateTime?     // Tanggal kedaluwarsa (basi), null = tidak ada batas
+  ingredientSkuId String        // Relasi ke master SKU
+  ingredientSku   IngredientSku @relation(fields: [ingredientSkuId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([ingredientSkuId])
 }
 
 model Product {
@@ -45,14 +61,14 @@ model Product {
 }
 
 model RecipeBOM {
-  id           String     @id @default(cuid())
-  productId    String
-  ingredientId String
-  quantity     Float      // Jumlah bahan mentah yang dibutuhkan per 1 porsi produk
-  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  productId       String
+  ingredientSkuId String        // Resep terikat ke SKU bahan baku, bukan batch
+  quantity        Float         // Jumlah bahan mentah yang dibutuhkan per 1 porsi produk
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredientSku   IngredientSku @relation(fields: [ingredientSkuId], references: [id], onDelete: Cascade)
 
-  @@unique([productId, ingredientId])
+  @@unique([productId, ingredientSkuId])
 }
 
 model Order {
