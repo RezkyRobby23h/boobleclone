@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Package,
+  Tags,
   UtensilsCrossed,
   ShoppingCart,
   ClipboardList,
@@ -13,6 +14,7 @@ import {
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Master SKU", href: "/dashboard/sku", icon: Tags },
   { name: "Bahan Baku", href: "/dashboard/inventory", icon: Package },
   { name: "Menu Produk", href: "/dashboard/products", icon: UtensilsCrossed },
   { name: "Kasir (POS)", href: "/dashboard/pos", icon: ShoppingCart },
