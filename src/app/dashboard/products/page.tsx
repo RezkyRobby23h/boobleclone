@@ -50,20 +50,19 @@ import {
 import { cn } from "@/lib/utils";
 
 // --- Types ---
-interface Ingredient {
+interface IngredientSku {
   id: string;
-  name: string;
   sku: string;
-  stock: number;
+  name: string;
   unit: string;
-  costPerUnit: number;
+  ingredients?: { id: string; stock: number; costPerUnit: number }[];
 }
 
 interface RecipeBOM {
   id: string;
-  ingredientId: string;
+  ingredientSkuId: string;
   quantity: number;
-  ingredient: Ingredient;
+  ingredientSku: IngredientSku;
 }
 
 interface Product {
@@ -79,7 +78,7 @@ interface Product {
 
 // --- Schema ---
 const recipeSchema = z.object({
-  ingredientId: z.string().min(1, "Pilih bahan baku"),
+  ingredientSkuId: z.string().min(1, "Pilih bahan baku"),
   quantity: z.number().min(0.01, "Jumlah harus lebih dari 0"),
 });
 
@@ -113,19 +112,21 @@ const categoryOptions = [
 
 // --- Ingredient Combobox ---
 function IngredientCombobox({
-  ingredients,
+  ingredientSkus,
   value,
   onSelect,
   excludeIds,
 }: {
-  ingredients: Ingredient[];
+  ingredientSkus: IngredientSku[];
   value: string;
   onSelect: (id: string) => void;
   excludeIds: string[];
 }) {
   const [open, setOpen] = useState(false);
-  const selected = ingredients.find((i) => i.id === value);
-  const available = ingredients.filter((i) => !excludeIds.includes(i.id) || i.id === value);
+  const selected = ingredientSkus.find((i) => i.id === value);
+  const available = ingredientSkus.filter(
+    (i) => !excludeIds.includes(i.id) || i.id === value
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -139,31 +140,41 @@ function IngredientCombobox({
           <CommandList>
             <CommandEmpty>Bahan baku tidak ditemukan.</CommandEmpty>
             <CommandGroup>
-              {available.map((ingredient) => (
-                <CommandItem
-                  key={ingredient.id}
-                  value={`${ingredient.name} ${ingredient.sku}`}
-                  onSelect={() => {
-                    onSelect(ingredient.id);
-                    setOpen(false);
-                  }}
-                >
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 w-4",
-                      value === ingredient.id ? "opacity-100" : "opacity-0"
-                    )}
-                  />
-                  <div className="flex-1">
-                    <p className="font-medium">{ingredient.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {ingredient.sku} &middot; Stok: {ingredient.stock}{" "}
-                      {ingredient.unit} &middot;{" "}
-                      {formatCurrency(ingredient.costPerUnit)}/{ingredient.unit}
-                    </p>
-                  </div>
-                </CommandItem>
-              ))}
+              {available.map((sku) => {
+                const totalStock =
+                  sku.ingredients?.reduce((sum, i) => sum + i.stock, 0) ?? 0;
+                const avgCost =
+                  sku.ingredients && sku.ingredients.length > 0
+                    ? sku.ingredients.reduce(
+                        (sum, i) => sum + i.costPerUnit,
+                        0
+                      ) / sku.ingredients.length
+                    : 0;
+                return (
+                  <CommandItem
+                    key={sku.id}
+                    value={`${sku.name} ${sku.sku}`}
+                    onSelect={() => {
+                      onSelect(sku.id);
+                      setOpen(false);
+                    }}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        value === sku.id ? "opacity-100" : "opacity-0"
+                      )}
+                    />
+                    <div className="flex-1">
+                      <p className="font-medium">{sku.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {sku.sku} &middot; Stok: {totalStock} {sku.unit}{" "}
+                        &middot; {formatCurrency(avgCost)}/{sku.unit}
+                      </p>
+                    </div>
+                  </CommandItem>
+                );
+              })}
             </CommandGroup>
           </CommandList>
         </Command>
@@ -175,7 +186,7 @@ function IngredientCombobox({
 // --- Main Page ---
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const [ingredientSkus, setIngredientSkus] = useState<IngredientSku[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -197,7 +208,7 @@ export default function ProductsPage() {
       sku: "",
       price: 0,
       category: "",
-      recipes: [{ ingredientId: "", quantity: 0 }],
+      recipes: [{ ingredientSkuId: "", quantity: 0 }],
     },
   });
 
@@ -210,9 +221,14 @@ export default function ProductsPage() {
 
   // Calculate HPP (Harga Pokok Penjualan)
   const hpp = watchedRecipes.reduce((sum, recipe) => {
-    const ingredient = ingredients.find((i) => i.id === recipe.ingredientId);
-    if (!ingredient) return sum;
-    return sum + ingredient.costPerUnit * (recipe.quantity || 0);
+    const sku = ingredientSkus.find((s) => s.id === recipe.ingredientSkuId);
+    if (!sku) return sum;
+    const avgCost =
+      sku.ingredients && sku.ingredients.length > 0
+        ? sku.ingredients.reduce((s, i) => s + i.costPerUnit, 0) /
+          sku.ingredients.length
+        : 0;
+    return sum + avgCost * (recipe.quantity || 0);
   }, 0);
 
   const fetchProducts = useCallback(async () => {
@@ -228,21 +244,21 @@ export default function ProductsPage() {
     }
   }, []);
 
-  const fetchIngredients = useCallback(async () => {
+  const fetchIngredientSkus = useCallback(async () => {
     try {
-      const res = await fetch("/api/ingredients");
+      const res = await fetch("/api/ingredient-skus");
       if (!res.ok) throw new Error("Gagal fetch");
       const data = await res.json();
-      setIngredients(data);
+      setIngredientSkus(data);
     } catch {
-      toast.error("Gagal memuat data bahan baku");
+      toast.error("Gagal memuat data SKU bahan baku");
     }
   }, []);
 
   useEffect(() => {
     fetchProducts();
-    fetchIngredients();
-  }, [fetchProducts, fetchIngredients]);
+    fetchIngredientSkus();
+  }, [fetchProducts, fetchIngredientSkus]);
 
   function openAddDialog() {
     setEditingId(null);
@@ -251,7 +267,7 @@ export default function ProductsPage() {
       sku: "",
       price: 0,
       category: "",
-      recipes: [{ ingredientId: "", quantity: 0 }],
+      recipes: [{ ingredientSkuId: "", quantity: 0 }],
     });
     setDialogOpen(true);
   }
@@ -266,10 +282,10 @@ export default function ProductsPage() {
       recipes:
         product.ingredients.length > 0
           ? product.ingredients.map((r) => ({
-              ingredientId: r.ingredientId,
+              ingredientSkuId: r.ingredientSkuId,
               quantity: r.quantity,
             }))
-          : [{ ingredientId: "", quantity: 0 }],
+          : [{ ingredientSkuId: "", quantity: 0 }],
     });
     setDialogOpen(true);
   }
@@ -320,8 +336,8 @@ export default function ProductsPage() {
     }
   }
 
-  const selectedIngredientIds = (watchedRecipes || []).map(
-    (r) => r.ingredientId
+  const selectedSkuIds = (watchedRecipes || []).map(
+    (r) => r.ingredientSkuId
   );
 
   const filtered = products.filter(
@@ -335,9 +351,7 @@ export default function ProductsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">
-            Menu Produk
-          </h2>
+          <h2 className="text-2xl font-bold tracking-tight">Menu Produk</h2>
           <p className="text-muted-foreground">
             Kelola produk dan resep (Bill of Materials)
           </p>
@@ -438,7 +452,9 @@ export default function ProductsPage() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => append({ ingredientId: "", quantity: 0 })}
+                    onClick={() =>
+                      append({ ingredientSkuId: "", quantity: 0 })
+                    }
                   >
                     <Plus className="h-4 w-4 mr-1" /> Tambah Bahan
                   </Button>
@@ -452,10 +468,19 @@ export default function ProductsPage() {
 
                 <div className="space-y-2">
                   {fields.map((field, index) => {
-                    const selectedId = watchedRecipes?.[index]?.ingredientId;
-                    const selectedIngredient = ingredients.find(
-                      (i) => i.id === selectedId
+                    const selectedSkuId =
+                      watchedRecipes?.[index]?.ingredientSkuId;
+                    const selectedSku = ingredientSkus.find(
+                      (s) => s.id === selectedSkuId
                     );
+                    const avgCost =
+                      selectedSku?.ingredients &&
+                      selectedSku.ingredients.length > 0
+                        ? selectedSku.ingredients.reduce(
+                            (s, i) => s + i.costPerUnit,
+                            0
+                          ) / selectedSku.ingredients.length
+                        : 0;
                     return (
                       <div
                         key={field.id}
@@ -463,18 +488,23 @@ export default function ProductsPage() {
                       >
                         <div className="flex-1 space-y-2">
                           <IngredientCombobox
-                            ingredients={ingredients}
-                            value={selectedId || ""}
+                            ingredientSkus={ingredientSkus}
+                            value={selectedSkuId || ""}
                             onSelect={(id) =>
-                              setValue(`recipes.${index}.ingredientId`, id)
+                              setValue(
+                                `recipes.${index}.ingredientSkuId`,
+                                id
+                              )
                             }
-                            excludeIds={selectedIngredientIds.filter(
+                            excludeIds={selectedSkuIds.filter(
                               (_, i) => i !== index
                             )}
                           />
                           <input
                             type="hidden"
-                            {...register(`recipes.${index}.ingredientId`)}
+                            {...register(
+                              `recipes.${index}.ingredientSkuId`
+                            )}
                           />
                         </div>
                         <div className="w-32">
@@ -488,19 +518,20 @@ export default function ProductsPage() {
                               })}
                             />
                             <span className="text-xs text-muted-foreground whitespace-nowrap">
-                              {selectedIngredient?.unit || "unit"}
+                              {selectedSku?.unit || "unit"}
                             </span>
                           </div>
                         </div>
                         <div className="w-28 text-right">
-                          {selectedIngredient && watchedRecipes?.[index]?.quantity > 0 && (
-                            <p className="text-sm font-medium">
-                              {formatCurrency(
-                                selectedIngredient.costPerUnit *
-                                  (watchedRecipes[index].quantity || 0)
-                              )}
-                            </p>
-                          )}
+                          {selectedSku &&
+                            watchedRecipes?.[index]?.quantity > 0 && (
+                              <p className="text-sm font-medium">
+                                {formatCurrency(
+                                  avgCost *
+                                    (watchedRecipes[index].quantity || 0)
+                                )}
+                              </p>
+                            )}
                         </div>
                         {fields.length > 1 && (
                           <Button
@@ -588,10 +619,17 @@ export default function ProductsPage() {
               </TableRow>
             ) : (
               filtered.map((product) => {
-                const productHpp = product.ingredients.reduce(
-                  (sum, r) => sum + r.ingredient.costPerUnit * r.quantity,
-                  0
-                );
+                const productHpp = product.ingredients.reduce((sum, r) => {
+                  const avgCost =
+                    r.ingredientSku?.ingredients &&
+                    r.ingredientSku.ingredients.length > 0
+                      ? r.ingredientSku.ingredients.reduce(
+                          (s, i) => s + i.costPerUnit,
+                          0
+                        ) / r.ingredientSku.ingredients.length
+                      : 0;
+                  return sum + avgCost * r.quantity;
+                }, 0);
                 return (
                   <TableRow key={product.id}>
                     <TableCell className="font-medium">
@@ -613,8 +651,8 @@ export default function ProductsPage() {
                       <div className="flex flex-wrap gap-1">
                         {product.ingredients.map((r) => (
                           <Badge key={r.id} variant="secondary">
-                            {r.ingredient.name} ({r.quantity}
-                            {r.ingredient.unit})
+                            {r.ingredientSku.name} ({r.quantity}
+                            {r.ingredientSku.unit})
                           </Badge>
                         ))}
                       </div>

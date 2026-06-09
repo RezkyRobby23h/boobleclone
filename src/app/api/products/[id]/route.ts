@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const recipeSchema = z.object({
-  ingredientId: z.string().min(1),
+  ingredientSkuId: z.string().min(1),
   quantity: z.number().min(0.01),
 });
 
@@ -25,7 +25,7 @@ export async function GET(
     const product = await prisma.product.findUnique({
       where: { id },
       include: {
-        ingredients: { include: { ingredient: true } },
+        ingredients: { include: { ingredientSku: true } },
       },
     });
 
@@ -68,7 +68,7 @@ export async function PUT(
       await prisma.recipeBOM.deleteMany({ where: { productId: id } });
       updateData.ingredients = {
         create: validated.recipes.map((r) => ({
-          ingredientId: r.ingredientId,
+          ingredientSkuId: r.ingredientSkuId,
           quantity: r.quantity,
         })),
       };
@@ -78,7 +78,7 @@ export async function PUT(
       where: { id },
       data: updateData,
       include: {
-        ingredients: { include: { ingredient: true } },
+        ingredients: { include: { ingredientSku: true } },
       },
     });
 

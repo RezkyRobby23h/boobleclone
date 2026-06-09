@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const recipeSchema = z.object({
-  ingredientId: z.string().min(1),
+  ingredientSkuId: z.string().min(1),
   quantity: z.number().min(0.01),
 });
 
@@ -23,7 +23,7 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
       include: {
         ingredients: {
-          include: { ingredient: true },
+          include: { ingredientSku: true },
         },
       },
     });
@@ -63,13 +63,13 @@ export async function POST(request: NextRequest) {
         isActive: validated.isActive,
         ingredients: {
           create: validated.recipes.map((r) => ({
-            ingredientId: r.ingredientId,
+            ingredientSkuId: r.ingredientSkuId,
             quantity: r.quantity,
           })),
         },
       },
       include: {
-        ingredients: { include: { ingredient: true } },
+        ingredients: { include: { ingredientSku: true } },
       },
     });
 
