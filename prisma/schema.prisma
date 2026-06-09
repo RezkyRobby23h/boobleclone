@@ -1,0 +1,69 @@
+// Prisma Schema for POS & Inventory Management System
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Ingredient {
+  id           String   @id @default(cuid())
+  name         String
+  sku          String   @unique
+  stock        Float    // Stok saat ini (gram, ml, pcs, dll)
+  minimumStock Float    // Batas peringatan stok menipis
+  unit         String   // g, ml, pcs, kg
+  costPerUnit  Float    // Harga modal per unit bahan baku
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  recipes      RecipeBOM[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  sku         String   @unique
+  price       Float    // Harga jual ke konsumen
+  category    String
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  ingredients RecipeBOM[]
+  orderItems  OrderItem[]
+}
+
+model RecipeBOM {
+  id           String     @id @default(cuid())
+  productId    String
+  ingredientId String
+  quantity     Float      // Jumlah bahan mentah yang dibutuhkan per 1 porsi produk
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, ingredientId])
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  invoiceNo   String      @unique // Contoh: INV-20260608-0001
+  totalAmount Float
+  paymentType String      // CASH, QRIS, DEBIT
+  status      String      // COMPLETED, PENDING, CANCELLED
+  createdAt   DateTime    @default(now())
+  orderItems  OrderItem[]
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId String
+  quantity  Int
+  price     Float   // Harga saat transaksi terjadi
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id])
+}
