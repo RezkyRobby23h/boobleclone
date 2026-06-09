@@ -23,7 +23,11 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
       include: {
         ingredients: {
-          include: { ingredientSku: true },
+          include: {
+            ingredientSku: {
+              include: { ingredients: true },
+            },
+          },
         },
       },
     });
@@ -69,7 +73,13 @@ export async function POST(request: NextRequest) {
         },
       },
       include: {
-        ingredients: { include: { ingredientSku: true } },
+        ingredients: {
+          include: {
+            ingredientSku: {
+              include: { ingredients: true },
+            },
+          },
+        },
       },
     });
 

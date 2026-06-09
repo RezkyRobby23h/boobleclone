@@ -26,20 +26,25 @@ import {
   Package,
 } from "lucide-react";
 
-interface Ingredient {
+interface IngredientBatch {
   id: string;
-  name: string;
-  sku: string;
   stock: number;
-  unit: string;
   costPerUnit: number;
+}
+
+interface IngredientSku {
+  id: string;
+  sku: string;
+  name: string;
+  unit: string;
+  ingredients: IngredientBatch[];
 }
 
 interface RecipeBOM {
   id: string;
-  ingredientId: string;
+  ingredientSkuId: string;
   quantity: number;
-  ingredient: Ingredient;
+  ingredientSku: IngredientSku;
 }
 
 interface Product {
@@ -93,12 +98,15 @@ export default function POSPage() {
     fetchProducts();
   }, [fetchProducts]);
 
-  // Calculate max quantity based on stock
+  // Calculate max quantity based on stock (sum across all batches per ingredientSku)
   function getMaxQuantity(product: Product): number {
     if (product.ingredients.length === 0) return 99;
     let max = Infinity;
     for (const recipe of product.ingredients) {
-      const possible = Math.floor(recipe.ingredient.stock / recipe.quantity);
+      const totalStock = recipe.ingredientSku?.ingredients?.reduce(
+        (sum: number, b: IngredientBatch) => sum + b.stock, 0
+      ) ?? 0;
+      const possible = Math.floor(totalStock / recipe.quantity);
       if (possible < max) max = possible;
     }
     return Math.max(0, max);
