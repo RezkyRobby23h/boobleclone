@@ -23,21 +23,24 @@ export async function POST(request: NextRequest) {
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
 
-    // Fetch all products with their BOM first
+    // Fetch all products with their BOM
     const productIds = validated.items.map((i) => i.productId);
     const products = await prisma.product.findMany({
       where: { id: { in: productIds } },
       include: {
         ingredients: {
-          include: { ingredient: true },
+          include: {
+            ingredientSku: true,
+          },
         },
       },
     });
 
     const productMap = new Map(products.map((p: any) => [p.id, p]));
 
-    // Validate stock and calculate total
-    let totalAmount = 0;
+    // Validate stock with FEFO: check across all non-expired batches of same SKU
+    // First, collect all ingredient SKU IDs needed
+    const ingredientSkuIds = new Set<string>();
     for (const item of validated.items) {
       const product = productMap.get(item.productId);
       if (!product) {
@@ -46,15 +49,46 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      for (const recipe of (product as any).ingredients) {
+        ingredientSkuIds.add(recipe.ingredientSkuId);
+      }
+    }
 
+    // Fetch all non-expired batches for each ingredient SKU, ordered by expiry (FEFO)
+    const allBatches = await prisma.ingredient.findMany({
+      where: {
+        ingredientSkuId: { in: Array.from(ingredientSkuIds) },
+        OR: [
+          { expiryDate: null },
+          { expiryDate: { gt: now } },
+        ],
+      },
+      orderBy: { expiryDate: { sort: "asc", nulls: "last" } },
+    });
+
+    // Group batches by ingredientSkuId
+    const batchesBySku = new Map<string, typeof allBatches>();
+    for (const batch of allBatches) {
+      const existing = batchesBySku.get(batch.ingredientSkuId) || [];
+      existing.push(batch);
+      batchesBySku.set(batch.ingredientSkuId, existing);
+    }
+
+    // Calculate total amount and validate stock availability
+    let totalAmount = 0;
+    for (const item of validated.items) {
+      const product = productMap.get(item.productId);
       totalAmount += (product as any).price * item.quantity;
 
       for (const recipe of (product as any).ingredients) {
         const requiredQty = recipe.quantity * item.quantity;
-        if (recipe.ingredient.stock < requiredQty) {
+        const skuBatches = batchesBySku.get(recipe.ingredientSkuId) || [];
+        const totalAvailable = skuBatches.reduce((sum, b) => sum + b.stock, 0);
+
+        if (totalAvailable < requiredQty) {
           return NextResponse.json(
             {
-              error: `Stok ${recipe.ingredient.name} tidak cukup. Dibutuhkan: ${requiredQty} ${recipe.ingredient.unit}, Tersedia: ${recipe.ingredient.stock} ${recipe.ingredient.unit}`,
+              error: `Stok ${recipe.ingredientSku.name} tidak cukup. Dibutuhkan: ${requiredQty} ${recipe.ingredientSku.unit}, Tersedia: ${totalAvailable} ${recipe.ingredientSku.unit} (batch aktif)`,
             },
             { status: 400 }
           );
@@ -62,7 +96,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Execute transaction
+    // Execute transaction with FEFO deduction
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await (prisma as any).$transaction(async (tx: any) => {
       // Count today's orders for sequential number
@@ -106,17 +140,33 @@ export async function POST(request: NextRequest) {
         include: { orderItems: true },
       });
 
-      // Auto-Deduction: decrement stock for each ingredient
+      // FEFO Auto-Deduction: deduct from batches closest to expiry first
+      // Clone the batches map for deduction tracking
+      const deductionMap = new Map<string, number>();
       for (const item of validated.items) {
         const prod = productMap.get(item.productId)!;
-        for (const recipe of (prod as any).ingredients) {
+      for (const recipe of (prod as any).ingredients) {
+          const skuId = recipe.ingredientSkuId;
           const deductionQty = recipe.quantity * item.quantity;
-          await tx.ingredient.update({
-            where: { id: recipe.ingredientId },
-            data: {
-              stock: { decrement: deductionQty },
-            },
-          });
+          deductionMap.set(skuId, (deductionMap.get(skuId) || 0) + deductionQty);
+        }
+      }
+
+      // Deduct stock using FEFO order
+      for (const [skuId, totalDeduction] of deductionMap) {
+        let remaining = totalDeduction;
+        const skuBatches = batchesBySku.get(skuId) || [];
+
+        for (const batch of skuBatches) {
+          if (remaining <= 0) break;
+          const deduct = Math.min(remaining, batch.stock);
+          if (deduct > 0) {
+            await tx.ingredient.update({
+              where: { id: batch.id },
+              data: { stock: { decrement: deduct } },
+            });
+            remaining -= deduct;
+          }
         }
       }
 

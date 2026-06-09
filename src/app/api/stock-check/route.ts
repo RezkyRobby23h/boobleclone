@@ -14,7 +14,9 @@ export async function POST(request: NextRequest) {
       where: { id: productId },
       include: {
         ingredients: {
-          include: { ingredient: true },
+          include: {
+            ingredientSku: true,
+          },
         },
       },
     });
@@ -26,7 +28,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check each ingredient stock
+    const now = new Date();
+
+    // Collect all ingredient SKU IDs needed
+    const ingredientSkuIds = new Set<string>();
+    for (const recipe of product.ingredients) {
+      ingredientSkuIds.add(recipe.ingredientSkuId);
+    }
+
+    // Fetch all non-expired batches for each ingredient SKU
+    const allBatches = await prisma.ingredient.findMany({
+      where: {
+        ingredientSkuId: { in: Array.from(ingredientSkuIds) },
+        OR: [
+          { expiryDate: null },
+          { expiryDate: { gt: now } },
+        ],
+      },
+      orderBy: { expiryDate: { sort: "asc", nulls: "last" } },
+    });
+
+    // Group batches by ingredientSkuId and sum stock
+    const stockBySku = new Map<string, number>();
+    for (const batch of allBatches) {
+      const current = stockBySku.get(batch.ingredientSkuId) || 0;
+      stockBySku.set(batch.ingredientSkuId, current + batch.stock);
+    }
+
+    // Check each ingredient stock across all active batches
     const stockIssues: {
       ingredientId: string;
       name: string;
@@ -39,7 +68,7 @@ export async function POST(request: NextRequest) {
 
     for (const recipe of product.ingredients) {
       const required = recipe.quantity * quantity;
-      const available = recipe.ingredient.stock;
+      const available = stockBySku.get(recipe.ingredientSkuId) || 0;
       const possibleQty = Math.floor(available / recipe.quantity);
 
       if (possibleQty < maxQuantity) {
@@ -48,11 +77,11 @@ export async function POST(request: NextRequest) {
 
       if (available < required) {
         stockIssues.push({
-          ingredientId: recipe.ingredientId,
-          name: recipe.ingredient.name,
+          ingredientId: recipe.ingredientSkuId,
+          name: recipe.ingredientSku.name,
           required,
           available,
-          unit: recipe.ingredient.unit,
+          unit: recipe.ingredientSku.unit,
         });
       }
     }
