@@ -1,23 +1,46 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-} from "recharts";
+import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+
+// Dynamic import Recharts untuk lazy loading - mengurangi RAM saat initial load
+const AreaChart = dynamic(
+  () => import("recharts").then((mod) => mod.AreaChart),
+  { ssr: false }
+);
+const Area = dynamic(() => import("recharts").then((mod) => mod.Area), {
+  ssr: false,
+});
+const BarChart = dynamic(
+  () => import("recharts").then((mod) => mod.BarChart),
+  { ssr: false }
+);
+const Bar = dynamic(() => import("recharts").then((mod) => mod.Bar), {
+  ssr: false,
+});
+const XAxis = dynamic(() => import("recharts").then((mod) => mod.XAxis), {
+  ssr: false,
+});
+const YAxis = dynamic(() => import("recharts").then((mod) => mod.YAxis), {
+  ssr: false,
+});
+const CartesianGrid = dynamic(
+  () => import("recharts").then((mod) => mod.CartesianGrid),
+  { ssr: false }
+);
+const Tooltip = dynamic(() => import("recharts").then((mod) => mod.Tooltip), {
+  ssr: false,
+});
+const ResponsiveContainer = dynamic(
+  () => import("recharts").then((mod) => mod.ResponsiveContainer),
+  { ssr: false }
+);
 
 interface DailyRevenue {
   date: string;
@@ -161,7 +184,9 @@ export function DashboardCharts() {
                 />
                 <Tooltip
                   formatter={(value, name) => [
-                    name === "quantity" ? `${value} porsi` : formatCurrency(Number(value)),
+                    name === "quantity"
+                      ? `${value} porsi`
+                      : formatCurrency(Number(value)),
                     name === "quantity" ? "Terjual" : "Pendapatan",
                   ]}
                   contentStyle={{
